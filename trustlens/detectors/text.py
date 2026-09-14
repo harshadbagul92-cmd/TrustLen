@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Tuple
 
 from .. import config, llm, schemas
 from ..schemas import Direction, Evidence, Modality, Reliability, Signal
+from . import stylometry
 from .base import Detector
 
 # Each rule: (name, weight, human template, compiled pattern)
@@ -208,8 +209,91 @@ class TextDetector(Detector):
                        f"patterns could slip through. (reason: {reason})"),
                 value=reason, weight=0.30, where="whole message"))
 
+        # -- 4. was this written by a machine? --------------------------------
+        # A separate question from "is this a scam". A person can write a scam,
+        # and a model can write something harmless, so both are reported and
+        # neither is allowed to stand in for the other.
+        ai_hits = 0
+
+        style = stylometry.measure(text)
+        style_verdict = stylometry.reads_as_machine(style)
+        findings["stylometry"] = style
+        findings["style_verdict"] = style_verdict
+
+        if style_verdict["measured"]:
+            for r in style_verdict["reasons"]:
+                ai_hits += 1
+                contributions.append(0.10)
+                signals.append(Signal(
+                    name="style_" + r["what"].replace(" ", "_"),
+                    direction=Direction.MANIPULATION,
+                    human="Writing style: " + r["detail"],
+                    value=r["value"], weight=0.30, where="whole message"))
+            if not style_verdict["reasons"]:
+                signals.append(Signal(
+                    name="style_reads_human", direction=Direction.AUTHENTIC,
+                    human=("The writing varies its sentence length and phrasing the way people "
+                           "normally do, with no stock assistant wording."),
+                    value={"burstiness": style.get("burstiness")},
+                    weight=0.25, where="whole message"))
+        else:
+            signals.append(Signal(
+                name="too_short_for_style", direction=Direction.LIMITATION,
+                human=("This passage is too short to judge the writing style. Telling human from "
+                       "machine writing needs a few sentences at minimum."),
+                value=style.get("word_count", 0), weight=0.20, where="whole message"))
+
+        if available:
+            machine = self._reads_as_ai(text)
+            findings["ai_written_check"] = machine
+            if machine:
+                agree = machine["agreement"]
+                if machine["verdict"] == "machine" and agree >= 0.6:
+                    ai_hits += 1
+                    contributions.append(min(0.45, 0.25 * agree + 0.12))
+                    signals.append(Signal(
+                        name="reads_as_ai_written", direction=Direction.MANIPULATION,
+                        human=(f"Asked {machine['samples']} separate times whether this reads as "
+                               f"machine-written, a language model said yes {machine['hits']} of "
+                               f"those times. {machine['why']}"),
+                        value={"agreement": agree, "markers": machine.get("markers")},
+                        weight=0.55, where="whole message"))
+                elif machine["verdict"] == "human" and agree >= 0.6:
+                    signals.append(Signal(
+                        name="reads_as_human_written", direction=Direction.AUTHENTIC,
+                        human=(f"Asked {machine['samples']} times, a language model consistently "
+                               f"read this as human-written. {machine['why']}"),
+                        value={"agreement": agree}, weight=0.30, where="whole message"))
+                else:
+                    signals.append(Signal(
+                        name="ai_check_inconclusive", direction=Direction.LIMITATION,
+                        human=("Asked several times whether this was machine-written, the answers "
+                               "disagreed with each other — so neither is being counted."),
+                        value=machine["verdicts"], weight=0.20, where="whole message"))
+
+        # The honest ceiling, stated on every text result.
+        reliability.soft_flags.append("ai_text_detection_is_unreliable")
+        reliability.band = max(reliability.band, 0.10)
+        signals.append(Signal(
+            name="ai_text_detection_limits", direction=Direction.LIMITATION,
+            human=("Telling AI-written text from human writing is not a solved problem — OpenAI "
+                   "withdrew its own classifier for being too inaccurate. Treat anything here as "
+                   "a hint, never as proof, and never as grounds to accuse a person."),
+            value="known_unreliable", weight=0.30, where="whole message"))
+
         score = schemas.combine(contributions)
         findings["contributions"] = [round(c, 3) for c in contributions]
+
+        # Which question does the evidence actually answer? The interface titles
+        # the result from this, so a human-written scam is not labelled "no AI
+        # found", and an AI-written but harmless note is not called a scam.
+        scam_hits = len(hits)
+        findings["headline"] = ("scam_and_ai" if scam_hits and ai_hits else
+                                "scam" if scam_hits else
+                                "ai_generated" if ai_hits else "clean")
+        findings["scam_signal_count"] = scam_hits
+        findings["ai_signal_count"] = ai_hits
+
         return self.build(self.modality, score, signals, reliability, {}, findings)
 
     # -- helpers -------------------------------------------------------------
@@ -280,4 +364,42 @@ Return STRICT JSON: {{"verdict":"supported|unsupported|unknown","why":"one short
             "verdict": top,
             "agreement": round(agreement, 2),
             "divergence": round(1.0 - agreement, 2),
+        }
+
+    @staticmethod
+    def _reads_as_ai(text: str) -> Dict[str, Any] | None:
+        """
+        Ask several times whether the passage reads as machine-written, and
+        keep the answer only when it is consistent.
+
+        Same SelfCheckGPT logic used elsewhere in the project: one confident
+        answer from a model means little; the same answer every time means more.
+        """
+        prompt = (
+            "Does the passage below read as written by an AI language model, or by a person?\n\n"
+            "Judge the WRITING, not the topic. Look for: unnaturally even sentence rhythm,\n"
+            "stock assistant phrasing, over-hedging, tidy list-like structure, absence of a\n"
+            "personal voice. Typos and idiosyncrasy suggest a person.\n\n"
+            "Answer \"unsure\" when it genuinely could be either. That is a useful answer.\n\n"
+            "PASSAGE:\n" + text[:3000] + "\n\n"
+            "Return STRICT JSON:\n"
+            '{"verdict":"machine|human|unsure","markers":["short phrase"],"why":"one short clause"}'
+        )
+        samples = llm.sample_json(prompt, n=config.VLM_SAMPLES,
+                                  model_name=config.TEXT_MODEL, temperature=1.0)
+        if len(samples) < 2:
+            return None
+
+        verdicts = [str(s.get("verdict", "unsure")).lower() for s in samples]
+        top = max(set(verdicts), key=verdicts.count)
+        hits = verdicts.count(top)
+        first = next((s for s in samples if str(s.get("verdict", "")).lower() == top), samples[0])
+        return {
+            "verdict": top,
+            "verdicts": verdicts,
+            "hits": hits,
+            "samples": len(verdicts),
+            "agreement": round(hits / len(verdicts), 2),
+            "markers": (first.get("markers") or [])[:4],
+            "why": str(first.get("why") or "")[:160],
         }

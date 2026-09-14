@@ -301,3 +301,68 @@ class TestExplainer(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+AI_ISH = ("It is important to note that artificial intelligence plays a crucial role in "
+          "the modern landscape. Furthermore, these systems underscore the multifaceted "
+          "nature of digital innovation. Moreover, organisations must navigate the "
+          "ever-evolving environment with care. In conclusion, this remains a testament "
+          "to human progress and a beacon of what is possible.")
+HUMAN_ISH = ("ok so i finally tried that cafe near the station. honestly? bit overpriced "
+             "lol. the croissant was good though, flaky and warm. took ages to get a "
+             "table tho - like 25 min?? anyway we're going back saturday if you're free")
+
+
+class TestAiWrittenText(unittest.TestCase):
+    """
+    The text lane answers two separate questions: is this a scam, and was it
+    written by a machine. A person can write a scam and a model can write
+    something harmless, so neither answer may stand in for the other.
+    """
+
+    def _run(self, text):
+        return detectors.get(Modality.TEXT).analyse(text, {})
+
+    def test_human_written_scam_is_headlined_as_a_scam(self):
+        """Not as 'no AI found' - that would bury the thing that matters."""
+        ev = self._run(SCAM)
+        self.assertEqual(ev.findings["headline"], "scam")
+        self.assertGreater(ev.findings["scam_signal_count"], 0)
+
+    def test_assistant_style_prose_is_headlined_as_ai(self):
+        ev = self._run(AI_ISH)
+        self.assertEqual(ev.findings["headline"], "ai_generated")
+        self.assertGreater(ev.findings["ai_signal_count"], 0)
+
+    def test_ordinary_human_writing_is_headlined_clean(self):
+        ev = self._run(HUMAN_ISH)
+        self.assertEqual(ev.findings["headline"], "clean")
+        self.assertEqual(ev.findings["scam_signal_count"], 0)
+
+    def test_every_text_result_states_the_reliability_limit(self):
+        """AI-text detection is not a solved problem, and the result must say so
+        every time - it is the difference between a hint and an accusation."""
+        for text in (SCAM, SAFE, AI_ISH, HUMAN_ISH):
+            with self.subTest(text=text[:30]):
+                ev = self._run(text)
+                self.assertTrue(any(s.name == "ai_text_detection_limits" for s in ev.limitations))
+                self.assertIn("ai_text_detection_is_unreliable", ev.reliability.soft_flags)
+
+    def test_style_score_alone_can_never_convict(self):
+        """Stylometry is weak evidence and is capped so it cannot, by itself,
+        push a passage past the 'likely manipulated' threshold."""
+        from trustlens.detectors import stylometry
+        m = stylometry.measure(AI_ISH)
+        self.assertLessEqual(stylometry.reads_as_machine(m)["score"], 0.45)
+
+    def test_burstiness_separates_even_prose_from_varied_prose(self):
+        from trustlens.detectors import stylometry
+        even = stylometry.measure(AI_ISH).get("burstiness")
+        varied = stylometry.measure(HUMAN_ISH).get("burstiness")
+        self.assertIsNotNone(even)
+        self.assertIsNotNone(varied)
+        self.assertLess(even, varied, "assistant-style prose should vary less than casual writing")
+
+    def test_short_text_declines_to_judge_style(self):
+        ev = self._run("Call me back when you can.")
+        self.assertTrue(any(s.name == "too_short_for_style" for s in ev.limitations))

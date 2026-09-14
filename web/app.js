@@ -24,6 +24,41 @@ const VERDICTS = {
   declared_ai:        { label: "The file declares it is AI",  colour: "var(--declared)", key: "declared" },
 };
 
+/**
+ * Text asks two different questions — "is this a scam?" and "was this written
+ * by a machine?" — and they have different answers. A person can write a scam,
+ * and a model can write something harmless. So the headline names whichever
+ * the evidence actually supports, instead of calling everything "manipulated".
+ */
+const TEXT_LABELS = {
+  likely_manipulated: {
+    scam:        "Likely a scam message",
+    scam_and_ai: "Likely a scam, and likely AI-written",
+    ai_generated:"Likely AI-generated",
+    clean:       "Something here looks wrong",
+  },
+  uncertain: {
+    scam:        "Possibly a scam — not enough to be sure",
+    scam_and_ai: "Possibly a scam, and possibly AI-written",
+    ai_generated:"Possibly AI-written — not enough to be sure",
+    clean:       "Not enough to call it",
+  },
+  likely_authentic: {
+    scam:        "Weak scam signs only, nothing conclusive",
+    scam_and_ai: "Weak signs only, nothing conclusive",
+    ai_generated:"Faint signs of AI writing, nothing conclusive",
+    clean:       "No evidence of a scam or AI writing",
+  },
+};
+
+function headlineFor(ev) {
+  const base = VERDICTS[ev.verdict] || VERDICTS.uncertain;
+  if (ev.modality !== "text") return base;
+  const key = (ev.findings || {}).headline || "clean";
+  const label = (TEXT_LABELS[ev.verdict] || {})[key];
+  return label ? { ...base, label } : base;
+}
+
 const DIRECTIONS = [
   { id: "supports_manipulation", title: "Points to manipulation",     colour: "var(--bad)" },
   { id: "supports_authentic",    title: "Points to it being genuine", colour: "var(--ok)" },
@@ -110,7 +145,7 @@ function Fold({ title, children, defaultOpen = false }) {
 
 /* ------------------------------------------------------------- verdict card */
 function VerdictCard({ ev }) {
-  const meta = VERDICTS[ev.verdict] || VERDICTS.uncertain;
+  const meta = headlineFor(ev);
   const score = useCountUp(ev.score);
   const R = 58, C = 2 * Math.PI * R;
   const [lo, hi] = ev.confidence;
@@ -291,10 +326,6 @@ function Result({ ev, previewUrl }) {
             </div>` : null}
         <//>` : null}
 
-      <${Fold} title="Everything we measured">
-        <pre class="json">${JSON.stringify(ev, null, 2)}</pre>
-      <//>
-
       <p style=${{ color: "var(--ink-3)", fontSize: ".84rem", marginTop: "16px" }}>
         This input was analysed in memory and has already been discarded. TrustLens stores nothing.
       </p>
@@ -448,67 +479,6 @@ function Analyse({ health }) {
 }
 
 /* ------------------------------------------------------------ static pages */
-function HowItWorks() {
-  return html`
-    <div>
-      <div class="page-head">
-        <h1 class="page-title">How it works</h1>
-        <p class="page-sub">Four checks, and an explicit refusal to overstate what they prove.</p>
-      </div>
-      <div class="card prose">
-        <h3>Why there is no “fake” button</h3>
-        <p>Deepfake-Eval-2024 took nine state-of-the-art open-source detectors and ran them on
-          deepfakes collected from real social media rather than the benchmarks they were built
-          for. AASIST fell from <strong>1.00 AUC to 0.43</strong>. GenConViT from 0.96 to 0.63.
-          NPR from 0.98 to 0.53. An AUC of 0.50 is a coin flip, and no commercial detector the
-          same team tested reached 90% accuracy.</p>
-        <p>So TrustLens reports one of four bands, and treats “I don’t know” as a real answer.</p>
-
-        <div style=${{ marginTop: "16px" }}>
-          ${[["var(--declared)", "Declared AI", "The file’s own metadata says it was AI-generated. No model needed."],
-             ["var(--ok)", "No evidence of manipulation", "The checks ran and found nothing. Never “this is real”."],
-             ["var(--warn)", "Not enough to call it", "Ambiguous, or conditions that make the checks unreliable."],
-             ["var(--bad)", "Likely manipulated", "Several independent checks agree."]].map(([c, t, d]) => html`
-            <div key=${t} class="band-row">
-              <span class="band-key" style=${{ background: c }}></span>
-              <div><strong>${t}</strong><br/><span style=${{ color: "var(--ink-3)" }}>${d}</span></div>
-            </div>`)}
-        </div>
-
-        <h3>Text</h3>
-        <p>Eleven deterministic rules that quote the matched words back at you, so you can judge
-          for yourself. A language model then reads the whole message alongside those hits. For
-          factual claims, the same question is put to the model several times — answers that
-          contradict each other mean the claim is not well supported.</p>
-
-        <h3>Image</h3>
-        <p>Provenance first: C2PA, IPTC and EXIF, read from real file structure, never the
-          filename. Then noise-residual analysis finds regions carrying a different sensor
-          texture, with ELA and JPEG-ghost used only to corroborate. Faces are cropped at 1.3×,
-          the ratio FaceForensics++ found worth roughly 17 accuracy points.</p>
-
-        <h3>Audio</h3>
-        <p>Honest scope: this measures how a recording was <strong>processed</strong>, not
-          whether a voice was cloned. Spectral ceiling, digitally-exact silence, pitch
-          steadiness, noise floor. A good clone recorded through a real microphone passes these.</p>
-
-        <h3>Video</h3>
-        <p>Twelve sampled frames plus the soundtrack, fused. It reports the
-          <strong>distribution</strong> — “5 of 12 frames” — because detectors that assume a
-          whole video is fake lose about 31% accuracy on selectively manipulated footage.</p>
-
-        <h3>What it cannot do</h3>
-        <ul>
-          <li>No trained face-swap detector, so a subtle identity swap is missed.</li>
-          <li>Without a model key it finds <em>edits</em>, not fully generated images.</li>
-          <li>Thresholds are tuned on a small sample — a starting point, not a benchmark.</li>
-        </ul>
-        <p style=${{ color: "var(--ink-3)", fontSize: ".86rem" }}>
-          Accuracy figures above belong to the cited papers, not to this build.</p>
-      </div>
-    </div>`;
-}
-
 function Privacy({ stats, refresh }) {
   return html`
     <div>
@@ -583,10 +553,9 @@ function System({ health, stats }) {
 
 /* ------------------------------------------------------------------- shell */
 const TABS = [
-  { id: "analyse", label: "Analyse",      icon: Icon.lens },
-  { id: "how",     label: "How it works", icon: Icon.book },
-  { id: "privacy", label: "Privacy",      icon: Icon.shield },
-  { id: "system",  label: "System",       icon: Icon.cpu },
+  { id: "analyse", label: "Analyse", icon: Icon.lens },
+  { id: "privacy", label: "Privacy", icon: Icon.shield },
+  { id: "system",  label: "System",  icon: Icon.cpu },
 ];
 
 function App() {
@@ -657,7 +626,6 @@ function App() {
             exit=${{ opacity: 0, y: -8 }}
             transition=${{ duration: .26, ease: [.22,.61,.36,1] }}>
             ${tab === "analyse" ? html`<${Analyse} health=${health} />` : null}
-            ${tab === "how"     ? html`<${HowItWorks} />` : null}
             ${tab === "privacy" ? html`<${Privacy} stats=${stats} refresh=${loadStats} />` : null}
             ${tab === "system"  ? html`<${System} health=${health} stats=${stats} />` : null}
           <//>
