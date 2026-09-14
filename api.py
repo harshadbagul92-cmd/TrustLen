@@ -142,4 +142,8 @@ async def analyze(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    # Hosting platforms hand the port in as $PORT and require binding to
+    # 0.0.0.0; locally these defaults keep it on localhost only.
+    uvicorn.run(app,
+                host=os.environ.get("HOST", "127.0.0.1"),
+                port=int(os.environ.get("PORT", "8000")))
