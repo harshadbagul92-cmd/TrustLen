@@ -65,18 +65,28 @@ class SelfCheckGPTScorer:
         if key and len(words) >= 10:
             prompt = f"State the verified key facts about this claim in 2 concise sentences: {claim_text}"
             try:
+                is_gemini = key.startswith("AIza") or os.getenv("GEMINI_API_KEY") == key
                 # Issue fast sampled completions
                 for _ in range(min(3, self.num_samples)):
-                    url = "https://api.openai.com/v1/chat/completions"
-                    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-                    payload = {
-                        "model": "gpt-4o-mini",
-                        "messages": [{"role": "user", "content": prompt}],
-                        "temperature": 0.7
-                    }
-                    resp = requests.post(url, headers=headers, json=payload, timeout=4)
-                    if resp.status_code == 200:
-                        samples.append(resp.json()["choices"][0]["message"]["content"])
+                    if is_gemini:
+                        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
+                        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+                        resp = requests.post(url, json=payload, timeout=4)
+                        if resp.status_code == 200:
+                            s_txt = resp.json().get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
+                            if s_txt:
+                                samples.append(s_txt)
+                    else:
+                        url = "https://api.openai.com/v1/chat/completions"
+                        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+                        payload = {
+                            "model": "gpt-4o-mini",
+                            "messages": [{"role": "user", "content": prompt}],
+                            "temperature": 0.7
+                        }
+                        resp = requests.post(url, headers=headers, json=payload, timeout=4)
+                        if resp.status_code == 200:
+                            samples.append(resp.json()["choices"][0]["message"]["content"])
             except Exception:
                 pass
 

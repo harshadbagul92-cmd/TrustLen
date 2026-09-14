@@ -76,10 +76,14 @@ def explain(
     Calls LLM if API key is supplied; otherwise returns a grounded mock explanation.
     """
     # Check environment variable if key not passed directly
-    key = api_key or os.getenv("TRUTH_LENS_LLM_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv("GEMINI_API_KEY")
+    key = api_key or os.getenv("TRUTH_LENS_LLM_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("OPENAI_API_KEY")
 
     if not key:
         return generate_mock_explanation(evidence)
+
+    # Auto-detect Gemini key if key starts with AIza
+    if key.startswith("AIza") or os.getenv("GEMINI_API_KEY") == key:
+        provider = "gemini"
 
     # Format grounded prompt
     signals_text = "\n".join([
@@ -107,7 +111,9 @@ def explain(
             response = requests.post(url, json=payload, timeout=10)
             if response.status_code == 200:
                 res_json = response.json()
-                return res_json['candidates'][0]['content']['parts'][0]['text'].strip()
+                text_out = res_json.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '').strip()
+                if text_out:
+                    return text_out
         else:
             # Default OpenAI REST format
             url = "https://api.openai.com/v1/chat/completions"
@@ -123,7 +129,9 @@ def explain(
             response = requests.post(url, headers=headers, json=payload, timeout=10)
             if response.status_code == 200:
                 res_json = response.json()
-                return res_json["choices"][0]["message"]["content"].strip()
+                text_out = res_json.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+                if text_out:
+                    return text_out
     except Exception as e:
         print(f"[Explainer LLM Error] {e}. Falling back to grounded mock explainer.")
 

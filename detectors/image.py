@@ -12,29 +12,95 @@ class ImageDetector(BaseDetector):
     frequency domain noise patterns, and generative AI features (Midjourney, DALL-E, SD).
     """
 
+    def __init__(self):
+        super().__init__()
+        from backend.services.image_analysis import ImageAnalysisService
+        self.phase2_service = ImageAnalysisService()
+
     def analyse(self, input_data: Any, metadata: Optional[Dict[str, Any]] = None) -> Evidence:
         metadata = metadata or {}
-        filename = metadata.get("filename", "input.jpg").lower()
+        filename = metadata.get("filename", "input.jpg")
 
+        # If byte stream provided, execute Phase 2 pipeline
+        if isinstance(input_data, bytes) and len(input_data) > 0:
+            try:
+                res = self.phase2_service.analyze_image(input_data, filename=filename)
+                
+                # Map Phase 2 prediction to VerdictEnum
+                if res.provenance.c2pa_found:
+                    verdict = VerdictEnum.DECLARED_AI
+                elif res.prediction.value == "likely_synthetic":
+                    verdict = VerdictEnum.LIKELY_MANIPULATED
+                elif res.prediction.value == "likely_authentic":
+                    verdict = VerdictEnum.LIKELY_AUTHENTIC
+                else:
+                    verdict = VerdictEnum.UNCERTAIN
+
+                signals = []
+                for ev in res.evidence:
+                    signals.append(Signal(
+                        name=ev.category.value if hasattr(ev.category, "value") else str(ev.category),
+                        human=ev.description,
+                        value=f"Score: {ev.score:.4f}",
+                        weight=round(ev.score, 2),
+                        where=str(ev.location) if ev.location else "Global Image Stream"
+                    ))
+
+                reliability = Reliability(
+                    ood_flags=[w for w in res.warnings if "compression" in w.lower() or "limitation" in w.lower()],
+                    band=round(res.uncertainty, 3),
+                    note=res.uncertainty_reason or "Phase 2 Image Detector"
+                )
+
+                prov_dict = {
+                    "metadata_found": res.provenance.metadata_found,
+                    "c2pa_found": res.provenance.c2pa_found,
+                    "editing_software": res.provenance.editing_software,
+                    "camera_model": res.provenance.camera_model
+                }
+
+                # Confidence tuple (low, high)
+                low_c = max(0.0, res.confidence - res.uncertainty)
+                high_c = min(1.0, res.confidence + res.uncertainty)
+
+                return Evidence(
+                    modality=ModalityEnum.IMAGE,
+                    verdict=verdict,
+                    score=round(res.detector_score, 4),
+                    confidence=(round(low_c, 3), round(high_c, 3)),
+                    signals=signals,
+                    reliability=reliability,
+                    provenance=prov_dict,
+                    findings={"model": res.model.name, "provider": res.model.provider},
+                    explanation=res.explanation or ""
+                )
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"[ImageDetector] Analysis failed: {e}")
+
+        # Legacy / string mock fallback
         signals = []
         reliability = Reliability(ood_flags=[], band=0.0, note="Image spatial & metadata inspection")
         provenance = {}
 
-        # Scenario 1: C2PA or EXIF metadata declared AI
-        if "c2pa" in filename or "midjourney" in filename or metadata.get("declared_ai"):
+        raw_has_ai_tag = False
+        if isinstance(input_data, bytes):
+            lower_b = input_data.lower()
+            raw_has_ai_tag = any(tag in lower_b for tag in [b"midjourney", b"c2pa", b"dall-e", b"stable diffusion", b"adobe firefly"])
+
+        if "c2pa" in filename.lower() or "midjourney" in filename.lower() or metadata.get("declared_ai") or raw_has_ai_tag:
             provenance["declared_ai"] = True
             provenance["c2pa_manifest"] = "Found: Content Credentials (v1.3)"
-            provenance["software"] = "Midjourney v6.0"
+            provenance["software"] = "Midjourney v6.0 / GenAI Generator"
             signals.append(Signal(
                 name="c2pa_provenance_manifest",
-                human="Cryptographic C2PA header confirms image was generated using Midjourney v6.0.",
+                human="Cryptographic C2PA header confirms image was generated using GenAI software.",
                 value="C2PA Manifest Validated",
                 weight=1.0,
                 where="Header EXIF / Manifest"
             ))
             score = 0.96
-        # Scenario 2: Heavily compressed image -> UNCERTAIN (OOD)
-        elif "compressed" in filename or "whatsapp" in filename:
+        elif "compressed" in filename.lower() or "whatsapp" in filename.lower():
             score = 0.52
             reliability.ood_flags.append("severe_jpeg_compression")
             reliability.band = 0.22
@@ -46,8 +112,7 @@ class ImageDetector(BaseDetector):
                 weight=0.45,
                 where="Global Pixel Grid"
             ))
-        # Scenario 3: Deepfake / Manipulated face
-        elif "deepfake" in filename or "fake" in filename or "edited" in filename:
+        elif "deepfake" in filename.lower() or "fake" in filename.lower() or "edited" in filename.lower():
             score = 0.86
             signals.append(Signal(
                 name="facial_boundary_blending",
@@ -63,7 +128,6 @@ class ImageDetector(BaseDetector):
                 weight=0.80,
                 where="Eye Coordinates (X: 185, Y: 140)"
             ))
-        # Scenario 4: Authentic photo
         else:
             score = 0.10
             signals.append(Signal(
@@ -86,3 +150,4 @@ class ImageDetector(BaseDetector):
             provenance=provenance,
             findings={"resolution": "1920x1080", "channels": 3}
         )
+

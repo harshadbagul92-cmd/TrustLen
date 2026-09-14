@@ -21,7 +21,12 @@ class VideoDetector(BaseDetector):
         provenance = {}
 
         # Scenario 1: Metadata marked AI
-        if "sora" in filename or "runway" in filename or metadata.get("declared_ai"):
+        raw_has_ai_tag = False
+        if isinstance(input_data, bytes):
+            lower_b = input_data.lower()
+            raw_has_ai_tag = any(tag in lower_b for tag in [b"sora", b"runway", b"pika", b"gen-2", b"synthesia"])
+
+        if "sora" in filename or "runway" in filename or metadata.get("declared_ai") or raw_has_ai_tag:
             provenance["declared_ai"] = True
             provenance["generator"] = "Sora / Runway Gen-2"
             signals.append(Signal(

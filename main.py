@@ -25,6 +25,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from backend.api.image_routes import router as image_router
+app.include_router(image_router)
+
 # Instantiate modular detectors
 text_detector = TextDetector()
 audio_detector = AudioDetector()
@@ -61,44 +64,63 @@ async def analyze(
         raise HTTPException(status_code=400, detail="Must provide either text string or media file upload.")
 
     evidence: Evidence = None
+    meta = {}
+    if api_key:
+        meta["api_key"] = api_key
+    if provider:
+        meta["provider"] = provider
 
-    # Handle text input
-    if text and not file:
-        evidence = text_detector.analyse(input_data=text)
+    try:
+        # Handle text input
+        if text and not file:
+            evidence = text_detector.analyse(input_data=text, metadata=meta)
 
-    # Handle media file input
-    elif file:
-        content_type = file.content_type or ""
-        filename = file.filename or "uploaded_file"
-        file_bytes = await file.read()
-        file_meta = {"filename": filename, "content_type": content_type, "size_bytes": len(file_bytes)}
+        # Handle media file input
+        elif file:
+            content_type = file.content_type or ""
+            filename = file.filename or "uploaded_file"
+            file_bytes = await file.read()
+            file_meta = {
+                "filename": filename,
+                "content_type": content_type,
+                "size_bytes": len(file_bytes),
+                **meta
+            }
 
-        # Content-type or filename extension routing
-        fn_lower = filename.lower()
-        if content_type.startswith("image/") or any(fn_lower.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp", ".bmp"]):
-            evidence = image_detector.analyse(input_data=file_bytes, metadata=file_meta)
-
-        elif content_type.startswith("audio/") or any(fn_lower.endswith(ext) for ext in [".mp3", ".wav", ".ogg", ".m4a", ".flac"]):
-            evidence = audio_detector.analyse(input_data=file_bytes, metadata=file_meta)
-
-        elif content_type.startswith("video/") or any(fn_lower.endswith(ext) for ext in [".mp4", ".mov", ".avi", ".mkv", ".webm"]):
-            evidence = video_detector.analyse(input_data=file_bytes, metadata=file_meta)
-
-        elif content_type.startswith("text/") or fn_lower.endswith(".txt"):
-            text_content = file_bytes.decode("utf-8", errors="ignore")
-            evidence = text_detector.analyse(input_data=text_content, metadata=file_meta)
-
-        else:
-            # Default fallback routing based on content inspection or text
-            try:
-                decoded = file_bytes.decode("utf-8")
-                evidence = text_detector.analyse(input_data=decoded, metadata=file_meta)
-            except Exception:
-                # Default to image lane if binary un-routable
+            # Content-type or filename extension routing
+            fn_lower = filename.lower()
+            if content_type.startswith("image/") or any(fn_lower.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp", ".bmp"]):
                 evidence = image_detector.analyse(input_data=file_bytes, metadata=file_meta)
 
-    # Generate plain-English grounded explanation
-    evidence.explanation = explain(evidence=evidence, api_key=api_key, provider=provider or "openai")
+            elif content_type.startswith("audio/") or any(fn_lower.endswith(ext) for ext in [".mp3", ".wav", ".ogg", ".m4a", ".flac"]):
+                evidence = audio_detector.analyse(input_data=file_bytes, metadata=file_meta)
+
+            elif content_type.startswith("video/") or any(fn_lower.endswith(ext) for ext in [".mp4", ".mov", ".avi", ".mkv", ".webm"]):
+                evidence = video_detector.analyse(input_data=file_bytes, metadata=file_meta)
+
+            elif content_type.startswith("text/") or fn_lower.endswith(".txt"):
+                text_content = file_bytes.decode("utf-8", errors="ignore")
+                evidence = text_detector.analyse(input_data=text_content, metadata=file_meta)
+
+            else:
+                # Default fallback routing based on content inspection or text
+                try:
+                    decoded = file_bytes.decode("utf-8")
+                    evidence = text_detector.analyse(input_data=decoded, metadata=file_meta)
+                except Exception:
+                    # Default to image lane if binary un-routable
+                    evidence = image_detector.analyse(input_data=file_bytes, metadata=file_meta)
+
+        if not evidence:
+            raise HTTPException(status_code=500, detail="Failed to generate evidence from input.")
+
+        # Generate plain-English grounded explanation
+        evidence.explanation = explain(evidence=evidence, api_key=api_key, provider=provider or "openai")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Analysis pipeline error: {str(e)}")
 
     return evidence
 
@@ -106,9 +128,14 @@ async def analyze(
 @app.post("/analyze/json", response_model=Evidence)
 def analyze_json(payload: TextAnalyzeRequest):
     """Convenience endpoint for pure JSON text analysis."""
-    evidence = text_detector.analyse(input_data=payload.text, metadata=payload.metadata)
-    evidence.explanation = explain(evidence=evidence)
-    return evidence
+    try:
+        evidence = text_detector.analyse(input_data=payload.text, metadata=payload.metadata)
+        api_key = payload.metadata.get("api_key") if payload.metadata else None
+        provider = payload.metadata.get("provider", "openai") if payload.metadata else "openai"
+        evidence.explanation = explain(evidence=evidence, api_key=api_key, provider=provider)
+        return evidence
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"JSON analysis error: {str(e)}")
 
 
 if __name__ == "__main__":

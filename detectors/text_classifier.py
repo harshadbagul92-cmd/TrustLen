@@ -34,27 +34,38 @@ class LLMTextClassifier:
     """
 
     def classify(self, text: str, rule_hits: List[Signal], api_key: Optional[str] = None) -> Dict[str, Any]:
-        key = api_key or os.getenv("OPENAI_API_KEY") or os.getenv("GEMINI_API_KEY")
+        key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("OPENAI_API_KEY")
 
         if key:
             rule_summary = "\n".join([f"- {s.name}: {s.human} ({s.where})" for s in rule_hits]) if rule_hits else "None"
             prompt = f"MESSAGE TO ANALYZE:\n\"\"\"{text}\"\"\"\n\nRULE HITS DETECTED:\n{rule_summary}"
             
             try:
-                url = "https://api.openai.com/v1/chat/completions"
-                headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-                payload = {
-                    "model": "gpt-4o-mini",
-                    "response_format": {"type": "json_object"},
-                    "messages": [
-                        {"role": "system", "content": ZERO_SHOT_SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt}
-                    ],
-                    "temperature": 0.1
-                }
-                resp = requests.post(url, headers=headers, json=payload, timeout=6)
-                if resp.status_code == 200:
-                    return json.loads(resp.json()["choices"][0]["message"]["content"])
+                if key.startswith("AIza") or os.getenv("GEMINI_API_KEY") == key:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
+                    full_prompt = f"{ZERO_SHOT_SYSTEM_PROMPT}\n\n{prompt}"
+                    payload = {"contents": [{"parts": [{"text": full_prompt}]}]}
+                    resp = requests.post(url, json=payload, timeout=6)
+                    if resp.status_code == 200:
+                        raw_txt = resp.json().get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
+                        cleaned = re.sub(r"^```json\s*", "", raw_txt.strip(), flags=re.MULTILINE)
+                        cleaned = re.sub(r"```$", "", cleaned.strip(), flags=re.MULTILINE)
+                        return json.loads(cleaned)
+                else:
+                    url = "https://api.openai.com/v1/chat/completions"
+                    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+                    payload = {
+                        "model": "gpt-4o-mini",
+                        "response_format": {"type": "json_object"},
+                        "messages": [
+                            {"role": "system", "content": ZERO_SHOT_SYSTEM_PROMPT},
+                            {"role": "user", "content": prompt}
+                        ],
+                        "temperature": 0.1
+                    }
+                    resp = requests.post(url, headers=headers, json=payload, timeout=6)
+                    if resp.status_code == 200:
+                        return json.loads(resp.json()["choices"][0]["message"]["content"])
             except Exception as e:
                 print(f"[LLMTextClassifier Warning] {e}. Falling back to zero-shot rule synthesis.")
 

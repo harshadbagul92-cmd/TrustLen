@@ -20,10 +20,14 @@ class TextDetector(BaseDetector):
         self.llm_classifier = LLMTextClassifier()
 
     def analyse(self, input_data: Any, metadata: Optional[Dict[str, Any]] = None) -> Evidence:
-        text = str(input_data).strip()
         metadata = metadata or {}
         headers = metadata.get("headers", {})
         api_key = metadata.get("api_key")
+
+        if isinstance(input_data, bytes):
+            text = input_data.decode("utf-8", errors="ignore").strip()
+        else:
+            text = str(input_data).strip()
 
         reliability = Reliability(ood_flags=[], band=0.0, note="Text lane evaluation")
         provenance = {}

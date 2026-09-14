@@ -20,6 +20,9 @@ class AcousticSignalExtractor:
         signals = []
 
         num_samples = len(waveform)
+        if num_samples < 512:
+            return signals
+
         duration_sec = num_samples / self.SAMPLE_RATE
 
         # 1. Pitch Variance (F0 Contour Simulation & Zero-Crossing Rate Estimator)
@@ -40,12 +43,15 @@ class AcousticSignalExtractor:
         is_safe = any(k in filename for k in ["authentic", "safe", "legit", "clean"])
 
         if not is_safe and (is_synthetic or (f0_std < 15.0 and len(f0_array) > 10)):
+            end_min = int(duration_sec // 60)
+            end_sec = int(duration_sec % 60)
+            timestamp_str = f"00:00 - {end_min:02d}:{end_sec:02d}"
             signals.append(Signal(
                 name="unnatural_pitch_flatness_f0",
                 human="Monotone fundamental frequency (F0) lacking natural human micro-tremors.",
                 value=f"F0 StdDev: {f0_std:.2f} Hz (Biological range: >35.0 Hz)",
                 weight=0.78,
-                where="00:00 - 00:10"
+                where=timestamp_str
             ))
 
         # 2. Silence & Respiration Pause Ratio

@@ -13,8 +13,9 @@ class ModalityEnum(str, Enum):
 class VerdictEnum(str, Enum):
     DECLARED_AI = "declared_ai"
     LIKELY_AUTHENTIC = "likely_authentic"
-    UNCERTAIN = "uncertain"
+    LIKELY_SYNTHETIC = "likely_synthetic"
     LIKELY_MANIPULATED = "likely_manipulated"
+    UNCERTAIN = "uncertain"
 
 
 class Signal(BaseModel):
@@ -63,11 +64,16 @@ def derive_verdict_and_confidence(
     1. Provenance metadata declared_ai -> DECLARED_AI
     2. OOD flags present -> UNCERTAIN (reliability gate widens band)
     3. Score < 0.35 -> LIKELY_AUTHENTIC ("no evidence of manipulation")
-    4. Score > 0.65 -> LIKELY_MANIPULATED
+    4. Score > 0.65 -> LIKELY_SYNTHETIC
     5. Score 0.35-0.65 -> UNCERTAIN
     """
     # Check declared AI provenance
-    is_declared = provenance.get("declared_ai", False) or provenance.get("is_synthetic_metadata", False)
+    is_declared = (
+        bool(provenance.get("declared_ai")) or
+        bool(provenance.get("is_synthetic_metadata")) or
+        bool(provenance.get("c2pa_manifest")) or
+        bool(provenance.get("codec_tag"))
+    )
     if is_declared:
         verdict = VerdictEnum.DECLARED_AI
     elif len(reliability.ood_flags) > 0:
@@ -81,10 +87,11 @@ def derive_verdict_and_confidence(
 
     # Calculate confidence interval: base margin ±0.05 plus reliability widening band
     base_margin = 0.05
-    widening = reliability.band
+    widening = max(0.0, float(reliability.band))
     total_delta = base_margin + widening
     
     low = max(0.0, score - total_delta)
     high = min(1.0, score + total_delta)
     
     return verdict, (round(low, 3), round(high, 3))
+

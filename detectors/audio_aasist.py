@@ -25,6 +25,14 @@ class AASISTProcessor:
     def extract_waveform(self, raw_bytes: bytes) -> np.ndarray:
         """Decodes raw audio bytes into 16kHz float32 mono waveform array."""
         try:
+            # Strip WAV header if present
+            if raw_bytes.startswith(b"RIFF") and len(raw_bytes) > 44:
+                raw_bytes = raw_bytes[44:]
+            
+            # Ensure buffer byte length is even for 16-bit PCM (np.int16)
+            if len(raw_bytes) % 2 != 0:
+                raw_bytes = raw_bytes[:len(raw_bytes) - 1]
+
             # Interpret 16-bit PCM buffer or fallback to float conversion
             audio_data = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
             if len(audio_data) < 1000:
