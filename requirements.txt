@@ -1,0 +1,28 @@
+# TrustLens - deliberately framework-free.
+#
+# No torch, no transformers. Published deepfake CNNs fall to 0.43-0.63 AUC on
+# real-world media (Deepfake-Eval-2024), so a multi-gigabyte download buys very
+# little. This runs on forensics, provenance, and a hosted model when a key is
+# set. Total install is well under 200 MB.
+
+# core
+pydantic>=2.0
+numpy>=1.24
+pillow>=9.5
+opencv-python-headless>=4.8
+piexif>=1.1.3
+
+# audio + video decoding (bundles its own ffmpeg binary; no system install)
+imageio-ffmpeg>=0.5.1
+
+# interface
+streamlit>=1.28
+
+# http api
+fastapi>=0.100
+uvicorn>=0.22
+python-multipart>=0.0.6
+
+# language + vision model. Optional: without a key the app runs on rules and
+# forensics alone and says so on every result.
+google-generativeai>=0.8

@@ -1,0 +1,16 @@
+# TrustLens theme.
+# Primary is the brand blue. Red, amber and green are reserved for verdict
+# meaning, so the default red button had to go - a red "Check this text"
+# button reads as a warning before anything has been checked.
+[theme]
+primaryColor = "#2563EB"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F5F7FA"
+textColor = "#0F172A"
+font = "sans serif"
+
+[server]
+maxUploadSize = 200
+
+[browser]
+gatherUsageStats = false

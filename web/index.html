@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TrustLens — media authenticity, explained</title>
+<meta name="description" content="Checks a message, image, voice recording or video and explains, in plain words, why it was flagged.">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <!-- Ambient backdrop. Pure CSS, GPU-composited, and switched off entirely
+       under prefers-reduced-motion. -->
+  <div class="aurora" aria-hidden="true">
+    <span class="blob blob-a"></span>
+    <span class="blob blob-b"></span>
+    <span class="blob blob-c"></span>
+    <span class="grid"></span>
+  </div>
+
+  <div id="root">
+    <!-- Shown until React mounts, and left visible if it never does, so the
+         page is never a blank screen. -->
+    <div class="boot">
+      <div class="boot-mark"></div>
+      <p>Loading TrustLens…</p>
+      <noscript>TrustLens needs JavaScript enabled.</noscript>
+    </div>
+  </div>
+
+  <!-- Vendored locally on purpose: a CDN outage or dead venue wifi must not
+       take the interface down mid-demo. Total ~274 KB. -->
+  <script src="/static/vendor/react.production.min.js"></script>
+  <script src="/static/vendor/react-dom.production.min.js"></script>
+  <script src="/static/vendor/framer-motion.js"></script>
+  <script src="/static/vendor/htm.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

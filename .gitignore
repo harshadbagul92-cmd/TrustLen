@@ -1,0 +1,27 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+*.log
+.pytest_cache/
+.DS_Store
+
+# Personal photographs used as test fixtures. These are pictures of real
+# people and must never leave this machine. bench_image.py and the test
+# suite read them from disk locally; nothing is committed or pushed.
+samples/
+*.jpg
+*.jpeg
+*.png
+*.webp
+scratch/
+
+# secrets
+.env
+
+# local scratch
+.tmptest/
+demo/
