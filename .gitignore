@@ -25,3 +25,14 @@ scratch/
 # local scratch
 .tmptest/
 demo/
+
+# dataset
+data/**/*
+!data/**/
+!data/**/.gitkeep
+
+# results
+results/
+
+# models
+models/
