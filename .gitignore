@@ -17,6 +17,7 @@ samples/
 *.jpeg
 *.png
 *.webp
+!web/logo.jpg
 scratch/
 
 # secrets

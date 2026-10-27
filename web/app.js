@@ -1,5 +1,5 @@
 /* =========================================================================
-   TrustLens — React interface
+   TrustLens — React Interface
    =========================================================================
    No build step. React, Framer Motion and htm are loaded as plain scripts
    from /static/vendor, so you edit this file and refresh. htm gives us
@@ -63,8 +63,14 @@ const DIRECTIONS = [
   { id: "supports_manipulation", title: "Points to manipulation",     colour: "var(--bad)" },
   { id: "supports_authentic",    title: "Points to it being genuine", colour: "var(--ok)" },
   { id: "limitation",            title: "Could not be checked",       colour: "var(--warn)" },
-  { id: "context",               title: "Context",                    colour: "var(--ink-3)" },
+  { id: "context",               title: "Context",                    colour: "var(--text-muted)" },
 ];
+
+/** Remove '(reason: no_api_key)' suffix from display strings */
+function sanitizeText(str) {
+  if (!str || typeof str !== "string") return str;
+  return str.replace(/\s*\(reason:\s*no_api_key\)/gi, "").trim();
+}
 
 const fmtValue = (v) => {
   if (v === null || v === undefined) return "";
@@ -118,6 +124,18 @@ const Icon = {
   check: (p) => html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"
       stroke-linecap="round" stroke-linejoin="round" width="10" height="10" ...${p}>
       <path d="m20 6-11 11-5-5"/></svg>`,
+  image: (p) => html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round" ...${p}>
+      <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>`,
+  video: (p) => html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round" ...${p}>
+      <path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>`,
+  audio: (p) => html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round" ...${p}>
+      <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`,
+  fileText: (p) => html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round" ...${p}>
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/></svg>`,
 };
 
 /* --------------------------------------------------------------- disclosure */
@@ -203,14 +221,11 @@ function VerdictCard({ ev }) {
 /* --------------------------------------------------------- annotated image */
 function Shot({ src, ev }) {
   const [dim, setDim] = useState(null);
-  const f = ev.findings || {};
+  const f = ev?.findings || {};
   const noise = f.noise_regions || [];
   const faces = f.face_boxes || [];
 
   const overlaps = (a, b) => !(a[2] < b[0] || b[2] < a[0] || a[3] < b[1] || b[3] < a[1]);
-  // Only draw what actually fed the score. A corroborating box is shown solely
-  // where it overlaps a noise region; painting one the score ignored would
-  // show the viewer a finding that is not one.
   const corroborating = [];
   ["ela_regions", "ghost_regions"].forEach((k, i) => {
     (f[k] || []).forEach((r) => {
@@ -222,15 +237,14 @@ function Shot({ src, ev }) {
   const legend = [];
   if (noise.length) legend.push(["var(--bad)", "different texture from the rest"]);
   if (corroborating.length) legend.push(["var(--warn)", "another check agrees here"]);
-  if (faces.length) legend.push(["var(--brand)", "face found (not scored)"]);
+  if (faces.length) legend.push(["var(--accent-prim)", "face found (not scored)"]);
 
   return html`
-    <${motion.div} initial=${{ opacity: 0, y: 12 }} animate=${{ opacity: 1, y: 0 }}
-      transition=${{ delay: .2, duration: .4 }} style=${{ marginTop: "18px" }}>
+    <div style=${{ marginTop: "12px" }}>
       <div class="shot">
-        <img src=${src} alt="the image you submitted, with any flagged regions outlined"
+        <img src=${src} alt="Uploaded media view"
              onLoad=${(e) => setDim({ w: e.target.naturalWidth, h: e.target.naturalHeight })} />
-        ${dim && html`
+        ${dim && ev && html`
           <svg viewBox=${`0 0 ${dim.w} ${dim.h}`} preserveAspectRatio="none">
             ${noise.map((r, i) => html`<rect key=${"n" + i} class="box-draw" stroke="var(--bad)"
                 x=${r.bbox[0]} y=${r.bbox[1]}
@@ -242,18 +256,18 @@ function Shot({ src, ev }) {
                 style=${{ animationDelay: (.45 + i * .1) + "s" }} />`)}
             ${faces.map(([x, y, w, h], i) => {
               const s = 1.3, cx = x + w / 2, cy = y + h / 2;
-              return html`<rect key=${"f" + i} class="box-draw" stroke="var(--brand)"
+              return html`<rect key=${"f" + i} class="box-draw" stroke="var(--accent-prim)"
                 x=${cx - (w * s) / 2} y=${cy - (h * s) / 2}
                 width=${w * s} height=${h * s} rx="6"
                 style=${{ animationDelay: (.15 + i * .1) + "s" }} />`;
             })}
           </svg>`}
       </div>
-      ${legend.length
+      ${ev && (legend.length
         ? html`<div class="legend">${legend.map(([c, t], i) =>
             html`<span key=${i}><i style=${{ background: c }}></i>${t}</span>`)}</div>`
-        : html`<div class="legend"><span>No region differed from the rest of the picture.</span></div>`}
-    <//>`;
+        : html`<div class="legend"><span>No region differed from the rest of the picture.</span></div>`)}
+    </div>`;
 }
 
 /* ------------------------------------------------------------ signal groups */
@@ -270,10 +284,10 @@ function Signals({ ev }) {
             transition=${{ delay: .05 * i, duration: .3 }}>
             <span class="sig-icon"></span>
             <div class="sig-text">
-              <p>${s.human}</p>
+              <p>${sanitizeText(s.human)}</p>
               <div class="sig-foot">
                 ${s.where ? html`<span class="tag">${s.where}</span>` : null}
-                <span class="tag">${fmtValue(s.value).slice(0, 90)}</span>
+                <span class="tag">${sanitizeText(fmtValue(s.value)).slice(0, 90)}</span>
               </div>
             </div>
           <//>`)}
@@ -296,19 +310,17 @@ function Signals({ ev }) {
 }
 
 /* ------------------------------------------------------------------ result */
-function Result({ ev, previewUrl }) {
+function ResultDetails({ ev }) {
   const rel = ev.reliability || {};
   return html`
     <div>
       <${VerdictCard} ev=${ev} />
 
-      <${motion.div} class="card" style=${{ marginTop: "14px" }}
+      <${motion.div} class="card" style=${{ marginTop: "16px" }}
         initial=${{ opacity: 0, y: 12 }} animate=${{ opacity: 1, y: 0 }}
         transition=${{ delay: .12, duration: .4 }}>
         <div class="why-label">In plain English</div>
-        <div class="why">${ev.explanation}</div>
-        ${previewUrl && ev.modality === "image"
-          ? html`<${Shot} src=${previewUrl} ev=${ev} />` : null}
+        <div class="why">${sanitizeText(ev.explanation)}</div>
         <${Signals} ev=${ev} />
       <//>
 
@@ -317,16 +329,16 @@ function Result({ ev, previewUrl }) {
           ${rel.ood_flags?.length ? html`
             <div class="alert" style=${{ "--ac": "var(--bad)" }}>
               <div><strong>Analysis could not run properly.</strong><br/>
-              ${rel.ood_flags.join(", ")}${rel.note ? " — " + rel.note : ""}</div>
+              ${rel.ood_flags.map(sanitizeText).join(", ")}${rel.note ? " — " + sanitizeText(rel.note) : ""}</div>
             </div>` : null}
           ${rel.soft_flags?.length ? html`
             <div class="alert" style=${{ "--ac": "var(--warn)" }}>
               <div><strong>Conditions that widened the range by ±${(rel.band || 0).toFixed(2)}:</strong><br/>
-              ${rel.soft_flags.join(", ")}</div>
+              ${rel.soft_flags.map(sanitizeText).join(", ")}</div>
             </div>` : null}
         <//>` : null}
 
-      <p style=${{ color: "var(--ink-3)", fontSize: ".84rem", marginTop: "16px" }}>
+      <p style=${{ color: "var(--text-dim)", fontSize: ".84rem", marginTop: "16px" }}>
         This input was analysed in memory and has already been discarded. TrustLens stores nothing.
       </p>
     </div>`;
@@ -347,7 +359,7 @@ function Scanning({ modality }) {
       initial=${{ opacity: 0, scale: .98 }} animate=${{ opacity: 1, scale: 1 }}>
       <div class="scan-beam"></div>
       <div class="why-label">Analysing ${modality || "input"}</div>
-      <div class="scan-steps" style=${{ marginTop: "12px" }}>
+      <div class="scan-steps" style=${{ marginTop: "14px" }}>
         ${STEPS.map((s, i) => html`
           <div key=${s} class=${"scan-step" + (i <= step ? " done" : "")}>
             <span class="tick">${i < step ? html`<${Icon.check} />` : null}</span>${s}
@@ -357,6 +369,13 @@ function Scanning({ modality }) {
 }
 
 /* ------------------------------------------------------------ analyse page */
+const MODES = [
+  { id: "text",  label: "Message/Article", icon: Icon.fileText, accept: "" },
+  { id: "image", label: "Image",           icon: Icon.image,    accept: "image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" },
+  { id: "video", label: "Video",           icon: Icon.video,    accept: "video/mp4,video/quicktime,.mp4,.mov" },
+  { id: "audio", label: "Audio",           icon: Icon.audio,    accept: "audio/mpeg,audio/wav,audio/x-m4a,audio/m4a,.mp3,.wav,.m4a" },
+];
+
 function Analyse({ health }) {
   const [mode, setMode] = useState("text");
   const [text, setText] = useState("");
@@ -368,12 +387,29 @@ function Analyse({ health }) {
   const [preview, setPreview] = useState(null);
   const inputRef = useRef(null);
 
+  const switchMode = (newMode) => {
+    setMode(newMode);
+    setEv(null);
+    setErr(null);
+    setFile(null);
+    if (preview) {
+      URL.revokeObjectURL(preview);
+      setPreview(null);
+    }
+  };
+
   const pick = (f) => {
     if (!f) return;
-    setFile(f); setEv(null); setErr(null);
-    setPreview((old) => { if (old) URL.revokeObjectURL(old);
-      return f.type.startsWith("image/") ? URL.createObjectURL(f) : null; });
+    setFile(f);
+    setEv(null);
+    setErr(null);
+    setPreview((old) => {
+      if (old) URL.revokeObjectURL(old);
+      return URL.createObjectURL(f);
+    });
   };
+
+  const currentTab = MODES.find((m) => m.id === mode) || MODES[0];
 
   const run = useCallback(async () => {
     setBusy(true); setErr(null); setEv(null);
@@ -395,86 +431,149 @@ function Analyse({ health }) {
 
   const ready = mode === "text" ? text.trim().length > 0 : !!file;
 
+  const renderTabs = html`
+    <div class="mode-tabs">
+      ${MODES.map((m) => html`
+        <button key=${m.id} class=${"mode-tab" + (mode === m.id ? " active" : "")}
+          onClick=${() => switchMode(m.id)}>
+          <${m.icon} width="16" height="16" />
+          ${m.label}
+        </button>`)}
+    </div>`;
+
+  const renderFileInput = html`
+    <div>
+      <input ref=${inputRef} type="file" accept=${currentTab.accept} style=${{ display: "none" }}
+        onChange=${(e) => pick(e.target.files[0])} />
+      ${file
+        ? html`<div class="chosen">
+            <span class="kind">${(file.name.split(".").pop() || "?").toUpperCase().slice(0,4)}</span>
+            <div style=${{ flex: 1, minWidth: 0 }}>
+              <div style=${{ fontWeight: 650, overflow: "hidden",
+                             textOverflow: "ellipsis", whiteSpace: "nowrap" }}>${file.name}</div>
+              <div style=${{ color: "var(--text-dim)", fontSize: ".82rem" }}>
+                ${(file.size / 1024 / 1024).toFixed(2)} MB
+              </div>
+            </div>
+            <button class="btn ghost" onClick=${() => { setFile(null); if (preview) URL.revokeObjectURL(preview); setPreview(null); }}>Change</button>
+          </div>`
+        : html`<div class=${"drop" + (over ? " over" : "")}
+            onClick=${() => inputRef.current?.click()}
+            onDragOver=${(e) => { e.preventDefault(); setOver(true); }}
+            onDragLeave=${() => setOver(false)}
+            onDrop=${(e) => { e.preventDefault(); setOver(false); pick(e.dataTransfer.files[0]); }}>
+            <div class="drop-icon"><${Icon.upload} width="22" height="22" /></div>
+            <h4>Drop a ${currentTab.label.toLowerCase()} here</h4>
+            <p>or click to browse — up to 200 MB</p>
+          </div>`}
+    </div>`;
+
+  const renderControlsCard = html`
+    <div class="card">
+      ${renderTabs}
+
+      <${AnimatePresence} mode="wait">
+        ${mode === "text"
+          ? html`<${motion.div} key="t" initial=${{ opacity: 0 }} animate=${{ opacity: 1 }} exit=${{ opacity: 0 }}>
+              <textarea class="input" value=${text} onInput=${(e) => setText(e.target.value)}
+                placeholder="Paste a message, email, social post or article here…"></textarea>
+            <//>`
+          : html`<${motion.div} key=${mode} initial=${{ opacity: 0 }} animate=${{ opacity: 1 }} exit=${{ opacity: 0 }}>
+              ${renderFileInput}
+            <//>`}
+      <//>
+
+      <div style=${{ display: "flex", gap: "10px", marginTop: "18px", alignItems: "center" }}>
+        <button class="btn" disabled=${!ready || busy} onClick=${run}>
+          ${busy ? html`<span class="spinner"></span>` : html`<${Icon.scan} width="16" height="16" />`}
+          ${busy ? "Analysing…" : "Analyse"}
+        </button>
+      </div>
+    </div>`;
+
+  const renderFeedback = html`
+    <${AnimatePresence} mode="wait">
+      ${err ? html`
+        <${motion.div} key="err" class="alert" style=${{ "--ac": "var(--bad)", marginTop: "16px" }}
+          initial=${{ opacity: 0, y: 8 }} animate=${{ opacity: 1, y: 0 }} exit=${{ opacity: 0 }}>
+          <div><strong>That didn’t work.</strong><br/>${err}</div>
+        <//>` : null}
+      ${busy ? html`<${motion.div} key="scan" style=${{ marginTop: "16px" }}
+          initial=${{ opacity: 0 }} animate=${{ opacity: 1 }} exit=${{ opacity: 0 }}>
+          <${Scanning} modality=${mode} />
+        <//>` : null}
+      ${ev && !busy ? html`<${motion.div} key="res" style=${{ marginTop: "16px" }}
+          initial=${{ opacity: 0 }} animate=${{ opacity: 1 }}>
+          <${ResultDetails} ev=${ev} />
+        <//>` : null}
+    <//>`;
+
+  const renderMediaPreview = html`
+    <div class="media-preview-pane">
+      <div class="media-preview-header">
+        <span class="media-preview-title">Media Preview</span>
+        <span class="media-preview-tag">${file ? (file.name.split(".").pop() || mode).toUpperCase() : mode.toUpperCase()}</span>
+      </div>
+
+      ${mode === "image" && html`
+        ${preview
+          ? html`<${Shot} src=${preview} ev=${ev} />`
+          : html`<div class="media-empty-state">
+              <${Icon.image} width="32" height="32" />
+              <p>Image preview and forensic bounding boxes appear here</p>
+            </div>`}`}
+
+      ${mode === "video" && html`
+        ${preview
+          ? html`<div class="media-player-box">
+              <video src=${preview} controls playsinline></video>
+            </div>`
+          : html`<div class="media-empty-state">
+              <${Icon.video} width="32" height="32" />
+              <p>Video player will preview the uploaded clip here</p>
+            </div>`}`}
+
+      ${mode === "audio" && html`
+        ${preview
+          ? html`<div class="audio-track-card">
+              <div class="audio-visual-bar">
+                ${[35, 65, 20, 85, 55, 30, 80, 45, 95, 50, 70, 40, 60, 75, 50, 90, 40, 65, 55, 80, 30]
+                  .map((h, i) => html`<span key=${i} style=${{ height: `${h}%` }}></span>`)}
+              </div>
+              <div style=${{ fontWeight: 650, fontSize: ".92rem" }}>${file?.name || "Audio Recording"}</div>
+              <audio src=${preview} controls style=${{ width: "100%" }}></audio>
+            </div>`
+          : html`<div class="media-empty-state">
+              <${Icon.audio} width="32" height="32" />
+              <p>Audio playback and waveform controls appear here</p>
+            </div>`}`}
+    </div>`;
+
   return html`
     <div>
       <div class="page-head">
         <h1 class="page-title">Check something</h1>
-        <p class="page-sub">Paste a message, or drop in an image, voice recording or video.
+        <p class="page-sub">Paste a message, or drop in an image, video, or voice recording.
           TrustLens never answers with a flat “real” or “fake” — where the evidence is thin,
           it says so instead of guessing.</p>
       </div>
 
-      <div class="card">
-        <div class="mode-tabs">
-          ${[["text", "Message or article"], ["file", "Image, audio or video"]].map(([id, label]) => html`
-            <button key=${id} class=${"mode-tab" + (mode === id ? " active" : "")}
-              onClick=${() => { setMode(id); setEv(null); setErr(null); }}>
-              ${mode === id ? html`<${motion.span} layoutId="modePill" class="mode-pill"
-                  transition=${{ type: "spring", stiffness: 380, damping: 32 }} />` : null}
-              ${label}
-            </button>`)}
-        </div>
-
-        <${AnimatePresence} mode="wait">
-          ${mode === "text"
-            ? html`<${motion.div} key="t" initial=${{ opacity: 0, y: 8 }} animate=${{ opacity: 1, y: 0 }}
-                     exit=${{ opacity: 0, y: -8 }} transition=${{ duration: .2 }}>
-                <textarea class="input" value=${text} onInput=${(e) => setText(e.target.value)}
-                  placeholder="Paste a message, email, social post or article here…"></textarea>
-              <//>`
-            : html`<${motion.div} key="f" initial=${{ opacity: 0, y: 8 }} animate=${{ opacity: 1, y: 0 }}
-                     exit=${{ opacity: 0, y: -8 }} transition=${{ duration: .2 }}>
-                <input ref=${inputRef} type="file" style=${{ display: "none" }}
-                  onChange=${(e) => pick(e.target.files[0])} />
-                ${file
-                  ? html`<div class="chosen">
-                      <span class="kind">${(file.name.split(".").pop() || "?").toUpperCase().slice(0,4)}</span>
-                      <div style=${{ flex: 1, minWidth: 0 }}>
-                        <div style=${{ fontWeight: 600, overflow: "hidden",
-                                       textOverflow: "ellipsis", whiteSpace: "nowrap" }}>${file.name}</div>
-                        <div style=${{ color: "var(--ink-3)", fontSize: ".82rem" }}>
-                          ${(file.size / 1024 / 1024).toFixed(2)} MB</div>
-                      </div>
-                      <button class="btn ghost" onClick=${() => { setFile(null); setPreview(null); }}>Change</button>
-                    </div>`
-                  : html`<div class=${"drop" + (over ? " over" : "")}
-                      onClick=${() => inputRef.current?.click()}
-                      onDragOver=${(e) => { e.preventDefault(); setOver(true); }}
-                      onDragLeave=${() => setOver(false)}
-                      onDrop=${(e) => { e.preventDefault(); setOver(false); pick(e.dataTransfer.files[0]); }}>
-                      <div class="drop-icon"><${Icon.upload} width="21" height="21" /></div>
-                      <h4>Drop a file here</h4>
-                      <p>or click to browse — images, audio and video up to 200 MB</p>
-                    </div>`}
-              <//>`}
-        <//>
-
-        <div style=${{ display: "flex", gap: "10px", marginTop: "16px", alignItems: "center" }}>
-          <button class="btn" disabled=${!ready || busy} onClick=${run}>
-            ${busy ? html`<span class="spinner"></span>` : html`<${Icon.scan} width="16" height="16" />`}
-            ${busy ? "Analysing…" : "Analyse"}
-          </button>
-          ${!health?.language_model?.available
-            ? html`<span style=${{ color: "var(--ink-3)", fontSize: ".83rem" }}>
-                Running on forensics only — no model key set.</span>` : null}
-        </div>
-      </div>
-
-      <${AnimatePresence} mode="wait">
-        ${err ? html`
-          <${motion.div} key="err" class="alert" style=${{ "--ac": "var(--bad)", marginTop: "14px" }}
-            initial=${{ opacity: 0, y: 8 }} animate=${{ opacity: 1, y: 0 }} exit=${{ opacity: 0 }}>
-            <div><strong>That didn’t work.</strong><br/>${err}</div>
-          <//>` : null}
-        ${busy ? html`<${motion.div} key="scan" style=${{ marginTop: "14px" }}
-            initial=${{ opacity: 0 }} animate=${{ opacity: 1 }} exit=${{ opacity: 0 }}>
-            <${Scanning} modality=${mode === "text" ? "text" : file?.type?.split("/")[0]} />
-          <//>` : null}
-        ${ev && !busy ? html`<${motion.div} key="res" style=${{ marginTop: "14px" }}
-            initial=${{ opacity: 0 }} animate=${{ opacity: 1 }}>
-            <${Result} ev=${ev} previewUrl=${preview} />
-          <//>` : null}
-      <//>
+      ${mode === "text"
+        ? html`
+            <div>
+              ${renderControlsCard}
+              ${renderFeedback}
+            </div>`
+        : html`
+            <div class="media-grid">
+              <div class="media-left">
+                ${renderControlsCard}
+                ${renderFeedback}
+              </div>
+              <div class="media-right">
+                ${renderMediaPreview}
+              </div>
+            </div>`}
     </div>`;
 }
 
@@ -487,7 +586,7 @@ function Privacy({ stats, refresh }) {
         <p class="page-sub">Nothing you submit is stored. This page proves it rather than
           asking you to take it on trust.</p>
       </div>
-      <div class="grid-2" style=${{ marginBottom: "14px" }}>
+      <div class="grid-2" style=${{ marginBottom: "16px" }}>
         ${[["Uploads kept", "0", "analysed in memory"],
            ["Results kept", "0", "discarded with the response"],
            ["Files on disk", String(stats?.scratch_files?.files_remaining ?? "—"), "should always be zero"]]
@@ -502,10 +601,7 @@ function Privacy({ stats, refresh }) {
           <code>finally</code> block — so it goes even if the analysis crashes.</p>
         <p>This is auditable: search the codebase for <code>scratch_file</code> and you have found
           every write of user content. The counters above come live from the running server.</p>
-        <h3>Your API key</h3>
-        <p>Read from the environment only. Never typed into this interface, never logged, never
-          sent anywhere except Google’s API.</p>
-        <button class="btn ghost" onClick=${refresh} style=${{ marginTop: "6px" }}>
+        <button class="btn ghost" onClick=${refresh} style=${{ marginTop: "8px" }}>
           Re-check for leftover files</button>
       </div>
     </div>`;
@@ -513,11 +609,12 @@ function Privacy({ stats, refresh }) {
 
 function System({ health, stats }) {
   const lm = health?.language_model || {};
+  const lmReason = lm.reason === "no_api_key" ? "not configured" : (lm.reason || "unavailable");
   const rows = [
     ["Provenance (C2PA / EXIF)", true, "always available"],
     ["Image forensics", true, "noise residual, ELA, JPEG ghost"],
     ["Audio & video decoding", !!health?.audio_video_decoder, "bundled ffmpeg"],
-    ["Language & vision model", !!lm.available, lm.available ? "connected" : (lm.reason || "unavailable")],
+    ["Language & vision model", !!lm.available, lm.available ? "connected" : lmReason],
     ["Trained face-swap model", false, "not installed by design"],
   ];
   return html`
@@ -532,17 +629,11 @@ function System({ health, stats }) {
             <span class=${"dot " + (ok ? "on" : "off")} style=${{ marginTop: "7px" }}></span>
             <div style=${{ flex: 1 }}>
               <strong>${name}</strong>
-              <div style=${{ color: "var(--ink-3)", fontSize: ".85rem" }}>${note}</div>
+              <div style=${{ color: "var(--text-muted)", fontSize: ".85rem" }}>${note}</div>
             </div>
           </div>`)}
       </div>
-      ${!lm.available ? html`
-        <div class="alert" style=${{ "--ac": "var(--warn)", marginTop: "14px" }}>
-          <div><strong>Running without a model.</strong><br/>
-            Forensics and rules still work. Set <code>GEMINI_API_KEY</code> in a
-            <code>.env</code> file to also detect fully AI-generated content.</div>
-        </div>` : null}
-      <div class="card prose" style=${{ marginTop: "14px" }}>
+      <div class="card prose" style=${{ marginTop: "16px" }}>
         <h3>Version</h3>
         <p><code>TrustLens ${health?.version || "—"}</code> · scratch files created
           ${stats?.scratch_files?.files_created ?? 0}, removed
@@ -578,13 +669,11 @@ function App() {
     loadStats();
   }, [loadStats]);
 
-  const lmOn = !!health?.language_model?.available;
-
   return html`
     <div class="shell">
       <aside class="sidebar">
         <div class="brand">
-          <div class="brand-mark"><${Icon.lens} style=${{ color: "#fff" }} /></div>
+          <img src="/static/logo.jpg" alt="TrustLens Logo" class="brand-logo" />
           <div>
             <div class="brand-name">TrustLens</div>
             <div class="brand-sub">media forensics</div>
@@ -596,21 +685,11 @@ function App() {
           ${TABS.map((t) => html`
             <button key=${t.id} class=${"nav-item" + (tab === t.id ? " active" : "")}
               onClick=${() => setTab(t.id)}>
-              ${tab === t.id ? html`<${motion.span} layoutId="navPill" class="nav-pill"
-                  transition=${{ type: "spring", stiffness: 420, damping: 34 }} />` : null}
               <${t.icon} />${t.label}
             </button>`)}
         </nav>
 
         <div class="side-block">
-          <div class="status-row">
-            <span class=${"dot " + (health ? "on" : "off") + (health ? "" : " pulse")}></span>
-            ${health ? "Engine ready" : "Connecting…"}
-          </div>
-          <div class="status-row">
-            <span class=${"dot " + (lmOn ? "on" : "off")}></span>
-            ${lmOn ? "Model connected" : "Forensics only"}
-          </div>
           <button class="theme-toggle" onClick=${() => setTheme(theme === "dark" ? "light" : "dark")}
             aria-label="Toggle colour theme">
             <span>${theme === "dark" ? "Dark" : "Light"}</span>

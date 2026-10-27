@@ -20,6 +20,7 @@ from PIL import Image
 
 from .. import config, schemas
 from ..schemas import Direction, Evidence, Modality, Reliability, Signal
+from . import ai_image_model
 from . import forensics_image as fx
 from . import vision_llm
 from .base import Detector
@@ -260,10 +261,24 @@ class ImageDetector(Detector):
                        f"checks alone. (reason: {vlm['reason']})"),
                 value=vlm["reason"], weight=0.30, where="whole image"))
 
+        # -- 5b. trained AI image classifier (CLIP ViT-Large/14 + Platt scaling) --
+        ai_signal = ai_image_model.analyse_ai_generation(pil)
+        signals.append(ai_signal)
+        findings["clip_ai_classifier"] = {
+            "direction": ai_signal.direction.value,
+            "value": ai_signal.value,
+        }
+        ai_available = ai_signal.direction != Direction.LIMITATION
+        if ai_available:
+            # Continuously scale contribution: prob_ai * weight (no threshold cliff at 0.50)
+            contributions.append(float(ai_signal.value) * ai_signal.weight)
+        else:
+            reliability.soft_flags.append("ai_image_classifier_unavailable")
+
         # -- 6. fuse --------------------------------------------------------
-        if not forensics_ran and not vlm["available"]:
+        if not forensics_ran and not vlm["available"] and not ai_available:
             reliability.ood_flags.append("no_detector_available")
-            reliability.note = "Neither forensic analysis nor a vision model could run on this file."
+            reliability.note = "Neither forensic analysis, a vision model, nor an AI image classifier could run on this file."
             score = config.ABSTAIN_SCORE
         else:
             score = schemas.combine(contributions)
